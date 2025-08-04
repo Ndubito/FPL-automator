@@ -5,10 +5,13 @@ from datetime import datetime
 from data.database import SessionLocal
 from data.fpl_api import FPLApi
 from models import Player, Team, Gameweek, ManagerPick, Transfer, PlayerGameweekStats, Manager
+from models.create_missing_tables import create_missing_tables
 
 class FPLDataFetcher:
     def __init__(self):
         self.api = FPLApi()
+        # Ensure all tables exist before attempting to fetch data
+        create_missing_tables()
         self.logger = logging.getLogger(__name__)
 
     def fetch_bootstrap_static(self, session: Session):
