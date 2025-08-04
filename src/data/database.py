@@ -1,8 +1,13 @@
+from dotenv import load_dotenv
 from sqlalchemy import create_engine, Column, Integer, String, Float, Boolean, ForeignKey, DateTime
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship, sessionmaker
+import os
 
-DATABASE_URL = "sqlite:///fpl.db"
+load_dotenv()
+
+DATABASE_URL = os.getenv("DATABASE_URL")
+
 engine = create_engine(DATABASE_URL, echo=True)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
