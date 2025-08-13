@@ -4,6 +4,8 @@ from data.database import Base
 
 class Player(Base):
     __tablename__ = 'players'
+    __table_args__ = {'extend_existing': True}  # Add this line
+
 
     id = Column(Integer, primary_key=True)
     web_name = Column(String, nullable=False)

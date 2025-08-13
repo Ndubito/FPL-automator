@@ -4,6 +4,8 @@ from data.database import Base
 
 class Gameweek(Base):
     __tablename__ = 'gameweeks'
+    __table_args__ = {'extend_existing': True}  # Add this line
+
 
     id = Column(Integer, primary_key=True)
     name = Column(String, nullable=False)

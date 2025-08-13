@@ -4,10 +4,13 @@ from data.database import Base
 
 class PlayerGameweekStats(Base):
     __tablename__ = 'player_gameweek_stats'
+    __table_args__ = {'extend_existing': True}  # Add this line
+
 
     id = Column(Integer, primary_key=True)
     player_id = Column(Integer, ForeignKey('players.id'), nullable=False)
     gameweek = Column(Integer, ForeignKey('gameweeks.id'), nullable=False)
+    points = Column(Integer, default=0)
     opponent_team = Column(String)
     was_home = Column(Boolean)
     minutes = Column(Integer, default=0)
