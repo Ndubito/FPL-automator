@@ -1,9 +1,9 @@
 import pulp
 from collections import defaultdict
-from typing import List, Dict, Tuple
+from typing import List, Dict
 from models import ManagerPick
 from data.database import SessionLocal
-from optimizer.run_transfer_optimizer import get_available_players, get_current_team
+from optimizer.data_utils import get_available_players, get_current_team
 
 
 class TransferOptimizer:
@@ -44,14 +44,14 @@ class TransferOptimizer:
 
         # OBJECTIVE: Maximize expected points minus transfer costs
         total_transfers = pulp.lpSum([transfer_in_vars[p['id']] for p in available_players])
-        transfer_cost_penalty = pulp.lpSum([
+        transfer_point_penalty = pulp.lpSum([
             (total_transfers - self.free_transfers) * self.transfer_cost
         ])
 
         prob += pulp.lpSum([
             player_vars[p['id']] * p['expected_points'] * gameweeks_ahead
             for p in available_players
-        ]) - transfer_cost_penalty, "TotalValue"
+        ]) - transfer_point_penalty, "TotalValue"
 
         # CONSTRAINT: Link selection with transfers
         for p in available_players:
@@ -81,8 +81,7 @@ class TransferOptimizer:
             for p in available_players
         ])
 
-        prob += (money_for_purchases - money_from_sales +
-                 transfer_cost_penalty) <= budget, "Budget"
+        prob += (money_for_purchases - money_from_sales) <= budget, "Budget"
 
         # CONSTRAINT: Squad composition (15 players total)
         prob += pulp.lpSum([player_vars[p['id']] for p in available_players]) == 15
@@ -112,15 +111,16 @@ class TransferOptimizer:
         transfers_in = [p for p in available_players if pulp.value(transfer_in_vars[p['id']]) == 1]
         transfers_out = [p for p in current_team if pulp.value(transfer_out_vars[p['id']]) == 1]
 
-        total_transfer_cost = max(0, len(transfers_in) - self.free_transfers) * self.transfer_cost
+        total_point_penalty = max(0, len(transfers_in) - self.free_transfers) * self.transfer_cost
 
         return {
             'selected_team': selected_team,
             'transfers_in': transfers_in,
             'transfers_out': transfers_out,
-            'transfer_cost': total_transfer_cost,
+            'point_penalty': total_point_penalty,
             'total_expected_points': sum(p['expected_points'] for p in selected_team),
-            'remaining_budget': budget - total_transfer_cost
+            'net_expected_points': sum(p['expected_points'] for p in selected_team) - total_point_penalty,
+            'remaining_budget': budget
         }
 
     def _get_selling_price(self, player: Dict) -> float:
