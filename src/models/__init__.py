@@ -6,6 +6,7 @@ from .gameweek import Gameweek
 from .manager_pick import ManagerPick
 from .transfer import Transfer
 from .player_gameweek_stats import PlayerGameweekStats
+from .fixture import Fixture
 
 # Make models available when importing from models
 __all__ = [
@@ -15,5 +16,7 @@ __all__ = [
     'Gameweek',
     'ManagerPick',
     'Transfer',
-    'PlayerGameweekStats'
+    'PlayerGameweekStats',
+    'Fixture',
 ]
+

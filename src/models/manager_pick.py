@@ -4,6 +4,8 @@ from data.database import Base
 
 class ManagerPick(Base):
     __tablename__ = 'manager_picks'
+    __table_args__ = {'extend_existing': True}  # Add this line
+
 
     id = Column(Integer, primary_key=True)
     entry_id = Column(Integer, ForeignKey('managers.id'), nullable=False)

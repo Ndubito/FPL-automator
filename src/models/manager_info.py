@@ -5,6 +5,8 @@ from data.database import Base
 
 class ManagerInfo(Base):
     __tablename__ = 'manager_info'
+    __table_args__ = {'extend_existing': True}  # Add this line
+
 
     id = Column(Integer, primary_key=True)
     current_gameweek = Column(Integer)

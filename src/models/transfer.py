@@ -5,6 +5,8 @@ from data.database import Base
 
 class Transfer(Base):
     __tablename__ = 'transfers'
+    __table_args__ = {'extend_existing': True}  # Add this line
+
 
     id = Column(Integer, primary_key=True)
     entry_id = Column(Integer, ForeignKey('managers.id'), nullable=False)
