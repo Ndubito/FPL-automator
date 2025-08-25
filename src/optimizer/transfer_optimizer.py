@@ -101,7 +101,7 @@ class TransferOptimizer:
             prob += pulp.lpSum([player_vars[p['id']] for p in group]) <= 3
 
         # Solve
-        prob.solve()
+        prob.solve(pulp.PULP_CBC_CMD(msg=False))
 
         if prob.status != pulp.LpStatusOptimal:
             raise Exception("Optimization failed to find optimal solution")
@@ -162,7 +162,7 @@ class TransferOptimizer:
         for team_id, group in team_groups.items():
             prob += pulp.lpSum([player_vars[p['id']] for p in group]) <= 3
 
-        prob.solve()
+        prob.solve(pulp.PULP_CBC_CMD(msg=False))
 
         return [p for p in available_players if pulp.value(player_vars[p['id']]) == 1]
 

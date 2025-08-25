@@ -2,7 +2,6 @@ from data.database import SessionLocal
 from models import Player, ManagerPick
 from sqlalchemy.orm import Session
 
-
 def get_available_players(session: Session):
     """Fetch all players from the DB and map them for optimization"""
     players = session.query(Player).all()

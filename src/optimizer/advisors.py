@@ -4,7 +4,7 @@ from typing import List, Dict, Optional
 from sqlalchemy import desc, text
 from sqlalchemy.dialects.postgresql import Any
 from sqlalchemy.orm import Session
-from sqlalchemy.sql.operators import and_
+from sqlalchemy.sql.operators import and_, or_
 
 from data.database import SessionLocal
 from models import ManagerPick, Fixture, PlayerGameweekStats, Player
@@ -14,13 +14,14 @@ from optimizer.transfer_optimizer import TransferOptimizer
 
 class CaptainAdvisor:
     """Provides captain and vice-captain recommendations"""
+    POSITION_MAP = {1: "GK", 2: "DEF", 3: "MID", 4: "FWD"}
 
     def __init__(self):
         self.position_weights = {
-            'FWD': {'easy': 1.3, 'medium': 1.2, 'hard': 1.1},
-            'MID': {'easy': 1.2, 'medium': 1.1, 'hard': 1.0},
-            'DEF': {'easy': 1.1, 'medium': 0.9, 'hard': 0.7},
-            'GK': {'easy': 0.5, 'medium': 0.3, 'hard': 0.2}
+            '4': {1.2}, #FWD
+            '3': {1.1},  #MID
+            '2': {0.9}, #DEF
+            '1': {0.3} #GK
         }
 
         # Add form weight factors
@@ -61,9 +62,19 @@ class CaptainAdvisor:
             'alternatives': captain_scores[2:5]
         }
 
-    def _calculate_captain_score(self, player: Dict, gameweek: int, session: Session) -> float:
+    def _calculate_captain_score(self, player: dict, gameweek: int, session: Session) -> float:
         """Calculate comprehensive captain score"""
-        base_score = player['expected_points']
+
+        weekly_stats = (
+            session.query(PlayerGameweekStats)
+            .filter_by(player_id=player['id'], gameweek=gameweek)
+            .first()
+        )
+
+        if not weekly_stats:
+            return 0.0  # no stats yet for that gameweek
+
+        base_score = weekly_stats.expected_points or 0.0
 
         # Position weight
         position_multiplier = self.position_weights.get(player['position'], 1.0)
@@ -353,15 +364,16 @@ class CaptainAdvisor:
 
             # Find historical fixtures
             historical_fixtures = session.query(Fixture).filter(
-                and_(
-                    Fixture.gameweek >= gameweek_cutoff,
-                    Fixture.gameweek < current_gameweek,
-                    (
-                            (Fixture.home_team_id == player_team_id) &
-                            (Fixture.away_team_id == opponent_id)
-                    ) | (
-                            (Fixture.away_team_id == player_team_id) &
-                            (Fixture.home_team_id == opponent_id)
+                Fixture.gameweek >= gameweek_cutoff,
+                Fixture.gameweek < current_gameweek,
+                or_(
+                    and_(
+                        Fixture.home_team_id == player_team_id,
+                        Fixture.away_team_id == opponent_id
+                    ),
+                    and_(
+                        Fixture.away_team_id == player_team_id,
+                        Fixture.home_team_id == opponent_id
                     )
                 )
             ).all()
@@ -670,15 +682,15 @@ class ChipAdvisor:
         Works with SQLAlchemy Row objects or dicts.
         """
         if isinstance(fixture, dict):
-            if fixture['team_h'] == team_id:
-                return fixture['team_h_difficulty']
+            if fixture['home_team_id'] == team_id:
+                return fixture['difficulty_home']
             else:
-                return fixture['team_a_difficulty']
+                return fixture['difficulty_away']
         else:  # SQLAlchemy Row or tuple
-            if fixture.team_h == team_id:
-                return fixture.team_h_difficulty
+            if fixture.home_team_id == team_id:
+                return fixture.difficulty_home
             else:
-                return fixture.team_a_difficulty
+                return fixture.difficulty_away
 
     from typing import List, Dict, Any
     from sqlalchemy.orm import Session
@@ -689,10 +701,10 @@ class ChipAdvisor:
         Returns a list of dicts.
         """
         query = text("""
-                     SELECT gameweek, team_h, team_a, team_h_difficulty, team_a_difficulty
+                     SELECT gameweek, home_team_id, away_team_id, difficulty_home, difficulty_away
                      FROM fixtures
                      WHERE gameweek BETWEEN :start_gw AND :end_gw
-                       AND (team_h = :team_id OR team_a = :team_id)
+                       AND (home_team_id = :team_id OR away_team_id = :team_id)
                      """)
 
         result = session.execute(query, {
@@ -873,28 +885,49 @@ class TransferAdvisor:
 
         return sorted(longterm, key=lambda x: x['longterm_score'], reverse=True)[:5]
 
-    def _calculate_fixture_run(self, team_id: int, gameweek: int, session: Session, gameweeks: int = 6) -> float:
-        """Calculate fixture difficulty for next N gameweeks"""
-        # This would analyze upcoming fixtures
-        return 0.0  # Placeholder
+    def _calculate_fixture_run(self, team_id: int, start_gw: int, session: Session, gameweeks: int = 6) -> float:
+        """Calculate an average fixture difficulty score for the next N gameweeks"""
+        end_gw = start_gw + gameweeks
+        fixtures = session.query(Fixture).filter(
+            Fixture.gameweek >= start_gw,
+            Fixture.gameweek < end_gw,
+            or_(Fixture.home_team_id == team_id, Fixture.away_team_id == team_id)
+        ).all()
+
+        if not fixtures:
+            return 0.0  # No upcoming fixtures
+
+        difficulty_sum = 0
+        for f in fixtures:
+            if f.home_team_id == team_id:
+                difficulty_sum += f.difficulty_home
+            else:
+                difficulty_sum += f.difficulty_away
+
+        return difficulty_sum / len(fixtures)
 
     def _generate_transfer_summary(self, priority: List, value: List, longterm: List) -> str:
         """Generate human-readable transfer summary"""
         summary_parts = []
 
         if priority:
-            summary_parts.append(f"{len(priority)} urgent transfer(s) needed")
+            players = ", ".join([p['player']['name'] for p in priority])
+            summary_parts.append(f"Urgent transfers needed: {players}")
 
         if value:
-            summary_parts.append(f"{len(value)} good value opportunities")
+            players = ", ".join([p['player']['name'] for p in value])
+            summary_parts.append(f"Good value opportunities: {players}")
 
         if longterm:
-            summary_parts.append(f"{len(longterm)} season keeper options")
+            players = ", ".join([p['player']['name'] for p in longterm])
+            summary_parts.append(f"Season keeper options: {players}")
 
         if not summary_parts:
             return "No immediate transfers recommended"
 
         return "; ".join(summary_parts)
+
+        print("VALUE TRANSFERS SAMPLE:", value[:1])
 
 
 # Updated main function with all advisors

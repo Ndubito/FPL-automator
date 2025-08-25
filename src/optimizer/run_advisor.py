@@ -12,9 +12,9 @@ def main():
     
     try:
         # First update data
-        logger.info("Updating FPL data...")
-        fetcher = FPLDataFetcher()
-        fetcher.update_all_data()
+        # logger.info("Updating FPL data...")
+        # fetcher = FPLDataFetcher()
+        # fetcher.update_all_data()
         
         # Run advisor
         logger.info("Running advisor system...")

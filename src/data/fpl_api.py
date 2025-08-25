@@ -4,7 +4,6 @@ from dotenv import load_dotenv
 
 class FPLApi:
     BASE_URL = "https://fantasy.premierleague.com/api"
-    load_dotenv()
 
     def __init__(self):
         load_dotenv()  # Load environment variables from .env

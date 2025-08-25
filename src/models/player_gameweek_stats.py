@@ -10,6 +10,7 @@ class PlayerGameweekStats(Base):
     id = Column(Integer, primary_key=True)
     player_id = Column(Integer, ForeignKey('players.id'), nullable=False)
     gameweek = Column(Integer, ForeignKey('gameweeks.id'), nullable=False)
+    expected_points = Column(Float, nullable=False)
     points = Column(Integer, default=0)
     opponent_team = Column(String)
     was_home = Column(Boolean)
@@ -36,3 +37,4 @@ class PlayerGameweekStats(Base):
 
     def __repr__(self):
         return f"<PlayerGameweekStats(player={self.player_id}, gw={self.gameweek}, mins={self.minutes})>"
+

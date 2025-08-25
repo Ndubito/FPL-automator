@@ -59,6 +59,15 @@ class FPLDataFetcher:
                         is_finished=gw_data.get('finished', False)
                     )
                     session.add(db_gw)
+                else:
+                    # Update existing
+                    db_gw.name = f"Gameweek {gw_data['id']}"
+                    db_gw.deadline_time = datetime.strptime(gw_data['deadline_time'], '%Y-%m-%dT%H:%M:%SZ')
+                    db_gw.average_entry_score = gw_data['average_entry_score']
+                    db_gw.highest_score = gw_data['highest_score']
+                    db_gw.is_current = gw_data['is_current']
+                    db_gw.is_next = gw_data['is_next']
+                    db_gw.is_finished = gw_data.get('finished', False)
 
             # Update players
             for player_data in data['elements']:
@@ -79,10 +88,18 @@ class FPLDataFetcher:
                         chance_of_playing_next_round=player_data['chance_of_playing_next_round']
                     )
                     session.add(db_player)
-
+                #update the player details
+                else:
+                    db_player.now_cost = player_data['now_cost'] / 10
+                    db_player.selected_by_percent = player_data['selected_by_percent']
+                    db_player.form = player_data['form']
+                    db_player.total_points = player_data['total_points']
+                    db_player.status = player_data['status']
+                    db_player.chance_of_playing_next_round = player_data['chance_of_playing_next_round']
 
             session.commit()
             self.logger.info("Bootstrap static data updated successfully")
+
         except Exception as e:
             self.logger.error(f"Error updating bootstrap static data: {e}")
             session.rollback()
@@ -94,16 +111,35 @@ class FPLDataFetcher:
             data = self.api.get_picks(gameweek)
 
             for pick_data in data['picks']:
-                db_pick = ManagerPick(
-                    entry_id=self.api.team_id,
-                    gameweek=gameweek,
-                    player_id=pick_data['element'],
-                    position=pick_data['position'],
-                    is_captain=pick_data['is_captain'],
-                    is_vice_captain=pick_data['is_vice_captain'],
-                    multiplier=pick_data['multiplier']
+                # Check if this pick already exists
+                db_pick = (
+                    session.query(ManagerPick)
+                    .filter_by(
+                        entry_id=self.api.team_id,
+                        gameweek=gameweek,
+                        player_id=pick_data['element']
+                    )
+                    .first()
                 )
-                session.add(db_pick)
+
+                if db_pick:
+                    db_pick.position = pick_data['position']
+                    db_pick.is_captain = pick_data['is_captain']
+                    db_pick.is_vice_captain = pick_data['is_vice_captain']
+                    db_pick.multiplier = pick_data['multiplier']
+
+                else:
+                    # Insert new row
+                    db_pick = ManagerPick(
+                        entry_id=self.api.team_id,
+                        gameweek=gameweek,
+                        player_id=pick_data['element'],
+                        position=pick_data['position'],
+                        is_captain=pick_data['is_captain'],
+                        is_vice_captain=pick_data['is_vice_captain'],
+                        multiplier=pick_data['multiplier']
+                    )
+                    session.add(db_pick)
 
             session.commit()
             self.logger.info(f"Manager picks for gameweek {gameweek} updated successfully")
@@ -118,19 +154,30 @@ class FPLDataFetcher:
             transfers_data = self.api.get_transfers()
 
             for transfer_data in transfers_data:
-                db_transfer = Transfer(
-                    entry_id=self.api.team_id,
-                    gameweek=transfer_data['event'],
-                    transfer_time=datetime.strptime(transfer_data['time'], '%Y-%m-%dT%H:%M:%SZ'),
-                    player_in_id=transfer_data['element_in'],
-                    player_out_id=transfer_data['element_out'],
-                    player_in_name=transfer_data.get('element_in_name', ''),
-                    player_out_name=transfer_data.get('element_out_name', ''),
-                    cost=transfer_data['cost']
+                db_transfer = (
+                    session.query(Transfer)
+                    .filter_by(
+                        entry_id=self.api.team_id,
+                        gameweek=transfer_data['event'],
+                        transfer_time=transfer_data['time'],
+                    )
+                    .first()
                 )
-                session.add(db_transfer)
 
-            session.commit()
+                if not db_transfer:
+                    db_transfer = Transfer(
+                        entry_id=self.api.team_id,
+                        gameweek=transfer_data['event'],
+                        transfer_time=datetime.strptime(transfer_data['time'], '%Y-%m-%dT%H:%M:%S.%fZ'),
+                        player_in_id=transfer_data['element_in'],
+                        player_out_id=transfer_data['element_out'],
+                        player_in_name=transfer_data.get('element_in_name', ''),
+                        player_out_name=transfer_data.get('element_out_name', ''),
+                        cost=transfer_data['element_in_cost']
+                    )
+                    session.add(db_transfer)
+
+                session.commit()
             self.logger.info("Transfers updated successfully")
         except Exception as e:
             self.logger.error(f"Error updating transfers: {e}")
@@ -140,6 +187,10 @@ class FPLDataFetcher:
     def fetch_player_gameweek_stats(self, session: Session, gameweek: int):
         """Fetch and store detailed player stats for a specific gameweek"""
         try:
+
+            bootstrap = self.api.get_bootstrap_static()
+            bootstrap_players = {p["id"]: p for p in bootstrap["elements"]}
+
             # Get all players from a database to iterate through
             players = session.query(Player).all()
 
@@ -150,8 +201,8 @@ class FPLDataFetcher:
 
                     # Find the gameweek data in the player's history
                     gameweek_data = None
-                    if 'history' in player_data:
-                        for gw_data in player_data['history']:
+                    if "history" in player_data:
+                        for gw_data in player_data["history"]:
                             if gw_data['round'] == gameweek:
                                 gameweek_data = gw_data
                                 break
@@ -163,11 +214,16 @@ class FPLDataFetcher:
                             gameweek=gameweek
                         ).first()
 
+                        bootstrap_info = bootstrap_players.get(player.id, {})
+                        expected_points = float(bootstrap_info.get("ep_this", 0.0))
+
                         if not existing_stats:
-                            player = session.query(Player).get(player.id)
+
                             db_stats = PlayerGameweekStats(
                                 player_id=player.id,
                                 gameweek=gameweek,
+                                expected_points = expected_points,
+                                points=gameweek_data.get('total_points', 0),
                                 opponent_team=gameweek_data.get('opponent_team', ''),
                                 was_home=gameweek_data.get('was_home', False),
                                 minutes=gameweek_data.get('minutes', 0),
@@ -190,6 +246,7 @@ class FPLDataFetcher:
                             session.add(db_stats)
                         else:
                             # Update existing stats
+                            existing_stats.points = gameweek_data.get('total_points', existing_stats.points)
                             existing_stats.opponent_team = gameweek_data.get('opponent_team',
                                                                              existing_stats.opponent_team)
                             existing_stats.was_home = gameweek_data.get('was_home', existing_stats.was_home)
@@ -210,6 +267,8 @@ class FPLDataFetcher:
                             existing_stats.own_goals = gameweek_data.get('own_goals', existing_stats.own_goals)
                             existing_stats.expected_goals = gameweek_data.get('expected_goals',
                                                                               existing_stats.expected_goals)
+                            existing_stats.expected_points = float(bootstrap_info.get("ep_this",
+                                                                                existing_stats.expected_points))
                             existing_stats.expected_assists = gameweek_data.get('expected_assists',
                                                                                 existing_stats.expected_assists)
                             existing_stats.expected_goal_involvements = gameweek_data.get('expected_goal_involvements',
@@ -359,9 +418,9 @@ class FPLDataFetcher:
                     for gw in range(1, current_gw.id + 1):
                         self.fetch_manager_picks(session, gw)
 
-                    start_gw = max(1, current_gw - 4)  # Last 5 gameweeks
+                    start_gw = max(1, current_gw.id - 4)  # Last 5 gameweeks
                     self.logger.info(f"Fetching player gameweek stats for GWs {start_gw}-{current_gw}...")
-                    for gw in range(start_gw, current_gw + 1):
+                    for gw in range(start_gw, current_gw.id + 1):
                         try:
                             self.fetch_player_gameweek_stats(session, gw)
                         except Exception as e:
@@ -421,3 +480,8 @@ if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
     fetcher = FPLDataFetcher()
     fetcher.update_all_data()
+    session = SessionLocal()
+
+    current_gw = session.query(Gameweek).filter_by(is_current=True).first()
+    fetcher.fetch_player_gameweek_stats(session, current_gw)
+
