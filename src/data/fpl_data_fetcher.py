@@ -215,7 +215,7 @@ class FPLDataFetcher:
                         ).first()
 
                         bootstrap_info = bootstrap_players.get(player.id, {})
-                        expected_points = float(bootstrap_info.get("ep_this", 0.0))
+                        expected_points = float(bootstrap_info.get("ep_next", 0.0))
 
                         if not existing_stats:
 
@@ -267,7 +267,7 @@ class FPLDataFetcher:
                             existing_stats.own_goals = gameweek_data.get('own_goals', existing_stats.own_goals)
                             existing_stats.expected_goals = gameweek_data.get('expected_goals',
                                                                               existing_stats.expected_goals)
-                            existing_stats.expected_points = float(bootstrap_info.get("ep_this",
+                            existing_stats.expected_points = float(bootstrap_info.get("ep_next",
                                                                                 existing_stats.expected_points))
                             existing_stats.expected_assists = gameweek_data.get('expected_assists',
                                                                                 existing_stats.expected_assists)

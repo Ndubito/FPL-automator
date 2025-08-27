@@ -67,12 +67,22 @@ class CaptainAdvisor:
 
         weekly_stats = (
             session.query(PlayerGameweekStats)
-            .filter_by(player_id=player['id'], gameweek=gameweek)
+            .filter_by(player_id=player['id'], gameweek=gameweek-1)
             .first()
         )
-
+        # Get most recent gameweek stats
         if not weekly_stats:
-            return 0.0  # no stats yet for that gameweek
+
+            # Try to get player's general expected points from the player dict
+            base_score = player.get('expected_points', 0.0)
+
+            latest_stats = (
+                session.query(PlayerGameweekStats)
+                .filter_by(player_id=player['id'])
+                .order_by(desc(PlayerGameweekStats.gameweek))
+                .first()
+            )
+            base_score = latest_stats.expected_points if latest_stats else 0.0
 
         base_score = weekly_stats.expected_points or 0.0
 
@@ -97,6 +107,7 @@ class CaptainAdvisor:
         )
 
         return round(total_score, 2)
+
 
     def _get_fixture_score(self, team_id: int, gameweek: int, session: Session) -> float:
         """Get fixture difficulty score (0.0 to 0.3 bonus)"""
@@ -895,6 +906,8 @@ class TransferAdvisor:
         ).all()
 
         if not fixtures:
+            # If no fixtures found for next gameweek, might be end of season or data issue
+            print(f"⚠️  No fixtures found for team {team_id} in GW {start_gw}-{end_gw - 1}")
             return 0.0  # No upcoming fixtures
 
         difficulty_sum = 0
@@ -929,6 +942,16 @@ class TransferAdvisor:
 
         print("VALUE TRANSFERS SAMPLE:", value[:1])
 
+def check_next_gameweek_data_availability(session: Session, next_gw: int) -> bool:
+    """Check if fixture and stats data exists for the next gameweek"""
+
+    # Check if fixtures exist for next gameweek
+    fixtures_exist = session.query(Fixture).filter_by(gameweek=next_gw).first() is not None
+
+    # Check if any player stats exist for next gameweek
+    stats_exist = session.query(PlayerGameweekStats).filter_by(gameweek=next_gw).first() is not None
+
+    return fixtures_exist and stats_exist
 
 # Updated main function with all advisors
 def run_complete_advisor():
@@ -940,20 +963,25 @@ def run_complete_advisor():
             return
 
         gw = latest_pick.gameweek
+        next_gw = gw + 1
         available_players = get_available_players(session)
         current_team = get_current_team(session, gw)
+
+        if not check_next_gameweek_data_availability(session, next_gw):
+            print(f"⚠️  Warning: Limited data available for GW {next_gw}")
+            print("Predictions will be based on current form and general expected points.")
 
         # Initialize advisors
         captain_advisor = CaptainAdvisor()
         chip_advisor = ChipAdvisor()
         transfer_advisor = TransferAdvisor()
 
-        print(f"\n🏆 FPL Advisory Report - Gameweek {gw}\n")
+        print(f"\n🏆 FPL Advisory Report - Gameweek {next_gw}\n")
         print("=" * 50)
 
         # 1. Captain Recommendations
         print("\n👑 CAPTAIN RECOMMENDATIONS")
-        captain_rec = captain_advisor.suggest_captain(current_team, gw, session)
+        captain_rec = captain_advisor.suggest_captain(current_team, next_gw, session)
 
         captain = captain_rec['captain']
         vice = captain_rec['vice_captain']
@@ -969,7 +997,7 @@ def run_complete_advisor():
         # 2. Transfer Recommendations
         print(f"\n🔄 TRANSFER RECOMMENDATIONS")
         transfer_rec = transfer_advisor.get_transfer_recommendations(
-            current_team, available_players, 100.0, gw, session
+            current_team, available_players, 100.0, next_gw, session
         )
 
         print(f"Summary: {transfer_rec['summary']}")
@@ -987,7 +1015,7 @@ def run_complete_advisor():
         # 3. Chip Usage Advice
         print(f"\n🃏 CHIP USAGE ADVICE")
         chips_used = {'wildcard': False, 'bench_boost': False, 'triple_captain': False, 'free_hit': False}
-        chip_rec = chip_advisor.analyze_chip_usage(current_team, gw, chips_used, session)
+        chip_rec = chip_advisor.analyze_chip_usage(current_team, next_gw, chips_used, session)
 
         for chip_name, advice in chip_rec.items():
             chip_display = chip_name.replace('_', ' ').title()
